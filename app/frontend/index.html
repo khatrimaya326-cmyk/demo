@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3-Tier App</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    input { padding: 8px; width: 70%; }
+    button { padding: 8px 16px; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 8px; border-bottom: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <h1>3-Tier App</h1>
+  <input id="itemInput" placeholder="Enter item name" />
+  <button onclick="addItem()">Add</button>
+  <ul id="itemList"></ul>
+
+  <script>
+    const API = window.BACKEND_URL || '/api';
+
+    async function loadItems() {
+      const res = await fetch(`${API}/items`);
+      const items = await res.json();
+      document.getElementById('itemList').innerHTML =
+        items.map(i => `<li>${i.id}: ${i.name}</li>`).join('');
+    }
+
+    async function addItem() {
+      const name = document.getElementById('itemInput').value.trim();
+      if (!name) return;
+      await fetch(`${API}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      document.getElementById('itemInput').value = '';
+      loadItems();
+    }
+
+    loadItems();
+  </script>
+</body>
+</html>
