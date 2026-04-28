@@ -23,11 +23,11 @@ jobs:
 
     - name: Update image tags in manifests
       run: |
-        HARBOR=${{ secrets.HARBOR_URL }}
+        ECR=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
         VERSION=${{ inputs.version }}
 
-        sed -i "s|image:.*demo/backend.*|image: $HARBOR/demo/backend:$VERSION|g"  k8s/backend/deployment.yaml
-        sed -i "s|image:.*demo/frontend.*|image: $HARBOR/demo/frontend:$VERSION|g" k8s/frontend/deployment.yaml
+        sed -i "s|image:.*demo/backend.*|image: $ECR/demo/backend:$VERSION|g"  k8s/backend/deployment.yaml
+        sed -i "s|image:.*demo/frontend.*|image: $ECR/demo/frontend:$VERSION|g" k8s/frontend/deployment.yaml
 
     - name: Commit and push to deploy-dev
       run: |
