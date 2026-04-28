@@ -1,0 +1,42 @@
+name: CD — Update Manifests for ArgoCD
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Image version/tag (e.g. v1.0.0)'
+        required: true
+
+env:
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: us-east-1
+
+permissions:
+  contents: write
+
+jobs:
+  update-manifests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout deploy-dev branch (manifests only)
+      uses: actions/checkout@v4
+      with:
+        ref: deploy-dev
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update image tags in manifests
+      run: |
+        ECR=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+        VERSION=${{ inputs.version }}
+
+        sed -i "s|image:.*demo/backend.*|image: $ECR/demo/backend:$VERSION|g"  k8s/backend/deployment.yaml
+        sed -i "s|image:.*demo/frontend.*|image: $ECR/demo/frontend:$VERSION|g" k8s/frontend/deployment.yaml
+
+    - name: Commit and push to deploy-dev
+      run: |
+        git config user.name  "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add k8s/backend/deployment.yaml k8s/frontend/deployment.yaml
+        git commit -m "deploy: ${{ inputs.version }}"
+        git push origin deploy-dev
