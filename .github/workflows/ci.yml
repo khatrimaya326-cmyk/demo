@@ -1,13 +1,9 @@
-name: CI — Build & Push Images
+name: CI — Build & Push to Harbor
 
 on:
   push:
-    tags:
-      - 'v*'   # triggers on git tag like v1.0.0
-
-env:
-  AWS_REGION: us-east-1
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+    branches:
+      - main    # triggers when dev team pushes code
 
 permissions:
   id-token: write
@@ -21,27 +17,29 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set VERSION from git tag
-      run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+    - name: Set VERSION from git SHA (short)
+      run: echo "VERSION=${GITHUB_SHA::8}" >> $GITHUB_ENV
+      # e.g. VERSION=a1b2c3d4
+      # If you want to use git tags instead, push a tag and change the trigger to:
+      # on: push: tags: ['v*']
+      # and use: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+    - name: Login to Harbor registry
+      uses: docker/login-action@v3
       with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Login to ECR
-      uses: aws-actions/amazon-ecr-login@v2
+        registry: ${{ secrets.HARBOR_URL }}
+        username: ${{ secrets.HARBOR_USERNAME }}
+        password: ${{ secrets.HARBOR_PASSWORD }}
 
     - name: Build & push backend
       run: |
-        docker build -t $ECR_REGISTRY/demo/backend:$VERSION ./app/backend
-        docker push $ECR_REGISTRY/demo/backend:$VERSION
+        docker build -t ${{ secrets.HARBOR_URL }}/demo/backend:$VERSION ./app/backend
+        docker push ${{ secrets.HARBOR_URL }}/demo/backend:$VERSION
 
     - name: Build & push frontend
       run: |
-        docker build -t $ECR_REGISTRY/demo/frontend:$VERSION ./app/frontend
-        docker push $ECR_REGISTRY/demo/frontend:$VERSION
+        docker build -t ${{ secrets.HARBOR_URL }}/demo/frontend:$VERSION ./app/frontend
+        docker push ${{ secrets.HARBOR_URL }}/demo/frontend:$VERSION
 
     - name: Trigger CD workflow
       uses: actions/github-script@v7
