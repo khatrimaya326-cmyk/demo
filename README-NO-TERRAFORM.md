@@ -332,7 +332,7 @@ aws rds create-db-subnet-group \
 
 ```bash
 aws rds create-db-instance \
-  --db-instance-identifier 3-tier-app-db \
+  --db-instance-identifier tier-app-db \
   --db-instance-class db.t3.micro \
   --engine postgres \
   --engine-version 15 \
@@ -348,14 +348,14 @@ aws rds create-db-instance \
 ### Wait for RDS to be ready (~10–15 min)
 
 ```bash
-aws rds wait db-instance-available --db-instance-identifier 3-tier-app-db
+aws rds wait db-instance-available --db-instance-identifier tier-app-db
 ```
 
 ### Get RDS Endpoint
 
 ```bash
 RDS_ENDPOINT=$(aws rds describe-db-instances \
-  --db-instance-identifier 3-tier-app-db \
+  --db-instance-identifier tier-app-db \
   --query 'DBInstances[0].Endpoint.Address' \
   --output text)
 echo "RDS Endpoint: $RDS_ENDPOINT"
@@ -526,7 +526,7 @@ aws eks delete-cluster --name 3-tier-app-cluster
 - Waits for nodes to be deleted, then deletes the cluster.
 
 ```bash
-aws rds delete-db-instance --db-instance-identifier 3-tier-app-db --skip-final-snapshot
+aws rds delete-db-instance --db-instance-identifier tier-app-db --skip-final-snapshot
 ```
 - Deletes the RDS instance. `--skip-final-snapshot` skips creating a backup — use only if you don't need the data.
 
