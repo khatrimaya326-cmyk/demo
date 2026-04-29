@@ -303,18 +303,24 @@ kubectl get nodes
 ## Step 7 — Create RDS PostgreSQL
 
 ### Security Group for RDS
+
 bash
 RDS_SG=$(aws ec2 create-security-group \
-  --group-name 3-tier-rds-sg --description "RDS SG" \
-  --vpc-id $VPC_ID --query 'GroupId' --output text)
+  --group-name 3-tier-rds-sg \
+  --description "RDS SG" \
+  --vpc-id $VPC_ID \
+  --query 'GroupId' \
+  --output text)
 
-
-bash
 aws ec2 authorize-security-group-ingress \
-  --group-id $RDS_SG --protocol tcp --port 5432 --cidr 10.0.0.0/16
+  --group-id $RDS_SG \
+  --protocol tcp \
+  --port 5432 \
+  --cidr 10.0.0.0/16
 
 
 ### DB Subnet Group
+
 bash
 aws rds create-db-subnet-group \
   --db-subnet-group-name tier-app-db-subnet \
@@ -323,6 +329,7 @@ aws rds create-db-subnet-group \
 
 
 ### Create RDS Instance
+
 bash
 aws rds create-db-instance \
   --db-instance-identifier 3-tier-app-db \
@@ -338,14 +345,19 @@ aws rds create-db-instance \
   --allocated-storage 20
 
 
+### Wait for RDS to be ready (~10–15 min)
+
 bash
 aws rds wait db-instance-available --db-instance-identifier 3-tier-app-db
 
 
+### Get RDS Endpoint
+
 bash
 RDS_ENDPOINT=$(aws rds describe-db-instances \
   --db-instance-identifier 3-tier-app-db \
-  --query 'DBInstances[0].Endpoint.Address' --output text)
+  --query 'DBInstances[0].Endpoint.Address' \
+  --output text)
 echo "RDS Endpoint: $RDS_ENDPOINT"
 
 
