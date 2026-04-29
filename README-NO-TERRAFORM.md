@@ -299,35 +299,31 @@ kubectl get nodes
 
 ---
 
+
 ## Step 7 — Create RDS PostgreSQL
 
 ### Security Group for RDS
-```bash
+bash
 RDS_SG=$(aws ec2 create-security-group \
   --group-name 3-tier-rds-sg --description "RDS SG" \
   --vpc-id $VPC_ID --query 'GroupId' --output text)
-```
-- Creates a **Security Group** — a firewall for the RDS instance.
 
-```bash
+
+bash
 aws ec2 authorize-security-group-ingress \
   --group-id $RDS_SG --protocol tcp --port 5432 --cidr 10.0.0.0/16
-```
-- Opens port `5432` (PostgreSQL) only for traffic from within the VPC (`10.0.0.0/16`).
-- The backend pods are inside the VPC so they can connect. The internet cannot.
+
 
 ### DB Subnet Group
-```bash
+bash
 aws rds create-db-subnet-group \
-  --db-subnet-group-name 3-tier-db-subnet \
+  --db-subnet-group-name tier-app-db-subnet \
   --db-subnet-group-description "3-tier DB subnet" \
   --subnet-ids $PRIV_SUBNET_1 $PRIV_SUBNET_2
-```
-- Tells RDS which subnets it can use. RDS requires at least 2 subnets in different AZs.
-- Uses private subnets so the database is not internet accessible.
+
 
 ### Create RDS Instance
-```bash
+bash
 aws rds create-db-instance \
   --db-instance-identifier 3-tier-app-db \
   --db-instance-class db.t3.micro \
@@ -336,34 +332,22 @@ aws rds create-db-instance \
   --master-username appuser \
   --master-user-password YourStrongPassword123! \
   --db-name appdb \
-  --db-subnet-group-name 3-tier-db-subnet \
+  --db-subnet-group-name tier-app-db-subnet \
   --vpc-security-group-ids $RDS_SG \
   --no-publicly-accessible \
   --allocated-storage 20
-```
-- `--db-instance-class db.t3.micro` — smallest RDS size, enough for dev/test.
-- `--engine postgres --engine-version 15` — PostgreSQL version 15.
-- `--master-username appuser` — database admin username.
-- `--master-user-password` — database admin password. **Change this to something strong.**
-- `--db-name appdb` — creates a default database named `appdb`.
-- `--no-publicly-accessible` — RDS is only reachable from within the VPC.
-- `--allocated-storage 20` — 20GB disk space.
 
-```bash
+
+bash
 aws rds wait db-instance-available --db-instance-identifier 3-tier-app-db
-```
-- Waits until RDS is fully ready. **Takes 10–15 minutes.**
 
-```bash
+
+bash
 RDS_ENDPOINT=$(aws rds describe-db-instances \
   --db-instance-identifier 3-tier-app-db \
   --query 'DBInstances[0].Endpoint.Address' --output text)
 echo "RDS Endpoint: $RDS_ENDPOINT"
-```
-- Gets the RDS hostname (e.g. `3-tier-app-db.xxxx.ap-south-1.rds.amazonaws.com`).
-- Save this value — you need it in Step 10 for the Kubernetes secret.
 
----
 
 ## Step 8 — Create ECR Repositories
 
