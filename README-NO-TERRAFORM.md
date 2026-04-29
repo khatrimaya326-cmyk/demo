@@ -262,19 +262,18 @@ aws eks wait cluster-active --name 3-tier-app-cluster
 aws eks create-nodegroup \
  --cluster-name 3-tier-app-cluster \
  --nodegroup-name default \
- --node-role arn:aws:iam::203557140228:role/3-tier-eks-node-role \
- --subnets subnet-0ac15d00f0f3e5d50 subnet-0d2c1b1e4c3b737dc \
- --instance-types t3.micro \
- --scaling-config minSize=2,maxSize=4,desiredSize=2 \
+ --node-role arn:aws:iam::${ACCOUNT_ID}:role/3-tier-eks-node-role \
+ --subnets $PRIV_SUBNET_1 $PRIV_SUBNET_2 \
+ --instance-types t3.small \
+ --scaling-config minSize=2,maxSize=4,desiredSize=3 \
  --ami-type AL2_x86_64 \
  --region ap-south-1
-
 ```
 - Creates EC2 worker nodes that run your pods.
-- `--instance-types t3.medium` — 2 vCPU, 4GB RAM per node. Enough for this app.
+- `--instance-types t3.small` — use at least `t3.small`. `t3.micro` only allows 4 pods/node which fills up with system pods (coredns, aws-node, kube-proxy, aws-load-balancer-controller), leaving no room for your app pods.
 - `--subnets` — nodes go into private subnets (not directly internet accessible).
-- `minSize=2,maxSize=4,desiredSize=2` — starts with 2 nodes, can scale up to 4.
-- `--ami-type AL2_x86_64` — Amazon Linux 2 image optimized for EKS.
+- `minSize=2,maxSize=4,desiredSize=3` — starts with 3 nodes to ensure enough pod capacity.
+- `--ami-type AL2_x86_64` — Amazon Linux 2 image optimized for EKS. Must match your Docker image build platform (see Step 9).
 
 ```bash
 aws eks wait nodegroup-active --cluster-name 3-tier-app-cluster --nodegroup-name default
@@ -388,18 +387,15 @@ aws ecr get-login-password --region ap-south-1 | \
 - The token is valid for 12 hours. Re-run if you get auth errors later.
 
 ```bash
-cd ~/Desktop/3-tier-app/app/backend
-docker build -t $ECR_REGISTRY/3-tier-app/backend:v1 .
-docker push $ECR_REGISTRY/3-tier-app/backend:v1
+cd ~/Desktop/demo/app/backend
+docker buildx build --platform linux/amd64 -t $ECR_REGISTRY/3-tier-app/backend:v1 --push .
 ```
-- `docker build` — builds the backend Docker image from `app/backend/Dockerfile`.
-- `-t $ECR_REGISTRY/3-tier-app/backend:v1` — tags it with the ECR URL and version `v1`.
-- `docker push` — uploads the image to ECR.
+- `--platform linux/amd64` — **required** if you are building on an Apple Silicon Mac (M1/M2/M3). EKS nodes run on `amd64`. Without this flag, the image will be built for `arm64` and pods will crash with `exec format error`.
+- `--push` — builds and pushes in one step.
 
 ```bash
-cd ~/Desktop/3-tier-app/app/frontend
-docker build -t $ECR_REGISTRY/3-tier-app/frontend:v1 .
-docker push $ECR_REGISTRY/3-tier-app/frontend:v1
+cd ~/Desktop/demo/app/frontend
+docker buildx build --platform linux/amd64 -t $ECR_REGISTRY/3-tier-app/frontend:v1 --push .
 ```
 - Same for the frontend image.
 
@@ -433,18 +429,104 @@ helm repo add eks https://aws.github.io/eks-charts && helm repo update
 ```
 - Adds the official AWS EKS Helm chart repository and updates the local cache.
 
+### Create IAM Policy for the Controller
+
+```bash
+curl -o /tmp/alb-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.1/docs/install/iam_policy.json
+
+aws iam create-policy \
+  --policy-name AWSLoadBalancerControllerIAMPolicy \
+  --policy-document file:///tmp/alb-policy.json
+```
+- Downloads and creates the IAM policy with all permissions the controller needs.
+
+```bash
+# Add DescribeListenerAttributes which is missing from the base policy
+cat > /tmp/extra-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "elasticloadbalancing:DescribeListenerAttributes",
+      "elasticloadbalancing:ModifyListenerAttributes"
+    ],
+    "Resource": "*"
+  }]
+}
+EOF
+
+aws iam create-policy \
+  --policy-name AWSLoadBalancerControllerExtraPolicy \
+  --policy-document file:///tmp/extra-policy.json
+```
+- The base policy is missing `DescribeListenerAttributes` which causes reconcile errors. This extra policy covers it.
+
+### Enable OIDC Provider (required for IRSA)
+
+```bash
+eksctl utils associate-iam-oidc-provider \
+  --cluster 3-tier-app-cluster \
+  --region ap-south-1 \
+  --approve
+```
+- Registers the cluster's OIDC provider in IAM. **Required** for IAM Roles for Service Accounts (IRSA) to work.
+- Without this, the controller falls back to the node role which lacks the right permissions.
+
+### Create IAM Role for the Controller (IRSA)
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+OIDC_ID=$(aws eks describe-cluster --name 3-tier-app-cluster \
+  --query 'cluster.identity.oidc.issuer' --output text | cut -d'/' -f5)
+
+cat > /tmp/trust-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/${OIDC_ID}"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "oidc.eks.ap-south-1.amazonaws.com/id/${OIDC_ID}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller",
+        "oidc.eks.ap-south-1.amazonaws.com/id/${OIDC_ID}:aud": "sts.amazonaws.com"
+      }
+    }
+  }]
+}
+EOF
+
+aws iam create-role \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --assume-role-policy-document file:///tmp/trust-policy.json
+
+aws iam attach-role-policy \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerIAMPolicy
+
+aws iam attach-role-policy \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerExtraPolicy
+```
+
+### Install the Controller with IRSA
+
 ```bash
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   -n kube-system \
   --set clusterName=3-tier-app-cluster \
   --set serviceAccount.create=true \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::${ACCOUNT_ID}:role/AmazonEKSLoadBalancerControllerRole \
   --set region=ap-south-1 \
   --set vpcId=$VPC_ID
 ```
-- Installs the **AWS Load Balancer Controller** into the `kube-system` namespace.
-- This controller watches for Kubernetes `Ingress` resources and automatically creates an AWS ALB.
-- Without this, the Ingress in `k8s/frontend/deployment.yaml` does nothing.
-- `--set vpcId=$VPC_ID` — tells the controller which VPC to create the ALB in.
+- Installs the **AWS Load Balancer Controller** with the IRSA role annotation on the service account.
+- `serviceAccount.annotations` — binds the IAM role to the Kubernetes service account so the controller has AWS permissions.
+- Without the IRSA annotation, the controller uses the node role which doesn't have ELB permissions.
 
 ---
 
@@ -452,17 +534,19 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
 
 ```bash
 sed -i '' "s|BACKEND_IMAGE|$ECR_REGISTRY/3-tier-app/backend:v1|g" \
-  ~/Desktop/3-tier-app/k8s/backend/deployment.yaml
+  ~/Desktop/demo/k8s/backend/deployment.yaml
 sed -i '' "s|FRONTEND_IMAGE|$ECR_REGISTRY/3-tier-app/frontend:v1|g" \
-  ~/Desktop/3-tier-app/k8s/frontend/deployment.yaml
+  ~/Desktop/demo/k8s/frontend/deployment.yaml
 ```
-- Replaces the placeholder text `BACKEND_IMAGE` / `FRONTEND_IMAGE` in the YAML files with the actual ECR image URLs.
-- `sed -i ''` — edits the file in-place (macOS syntax).
+- Replaces the placeholder image names with the actual ECR image URLs.
+- `sed -i ''` — edits the file in-place (macOS syntax). On Linux use `sed -i` without the empty quotes.
 
 ```bash
-kubectl apply -f ~/Desktop/3-tier-app/k8s/backend/deployment.yaml
-kubectl apply -f ~/Desktop/3-tier-app/k8s/frontend/deployment.yaml
+kubectl apply -f ~/Desktop/demo/k8s/namespace.yaml
+kubectl apply -f ~/Desktop/demo/k8s/backend/deployment.yaml
+kubectl apply -f ~/Desktop/demo/k8s/frontend/deployment.yaml
 ```
+- Creates the `app` namespace.
 - Deploys the backend and frontend to Kubernetes.
 - Creates: Deployments (pods), Services (internal networking), and Ingress (ALB).
 

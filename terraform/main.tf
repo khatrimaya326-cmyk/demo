@@ -7,9 +7,9 @@ terraform {
     }
   }
   backend "s3" {
-    bucket = "3-tier-app-tfstate"
+    bucket = "tier-app-tfstate"
     key    = "eks/terraform.tfstate"
-    region = "us-east-1"
+    region = "ap-south-1"
   }
 }
 
@@ -57,7 +57,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     default = {
-      instance_types = ["t3.medium"]
+      instance_types = ["t3.micro"]
       min_size       = 2
       max_size       = 4
       desired_size   = 2
@@ -82,7 +82,7 @@ module "eks" {
 
 # ── RDS (PostgreSQL) ──────────────────────────────────────────────────────────
 resource "aws_db_subnet_group" "main" {
-  name       = "${var.project_name}-db-subnet"
+  name       = "tier-app-db-subnet"
   subnet_ids = module.vpc.private_subnets
   tags       = var.tags
 }
@@ -101,18 +101,18 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_db_instance" "main" {
-  identifier           = "${var.project_name}-db"
-  engine               = "postgres"
-  engine_version       = "15"
-  instance_class       = "db.t3.micro"
-  allocated_storage    = 20
-  db_name              = "appdb"
-  username             = "appuser"
-  password             = var.db_password
-  db_subnet_group_name = aws_db_subnet_group.main.name
+  identifier             = "tier-app-db"
+  engine                 = "postgres"
+  engine_version         = "15"
+  instance_class         = "db.t3.micro"
+  allocated_storage      = 20
+  db_name                = "appdb"
+  username               = "appuser"
+  password               = var.db_password
+  db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
-  skip_final_snapshot  = true
-  tags                 = var.tags
+  skip_final_snapshot    = true
+  tags                   = var.tags
 }
 
 # ── ECR Repositories ─────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 variable "aws_region" {
-  default = "us-east-1"
+  default = "ap-south-1"
 }
 
 variable "project_name" {
-  default = "3-tier-app"
+  default = "tier-app"
 }
 
 variable "db_password" {
@@ -21,7 +21,7 @@ variable "github_repo" {
 
 variable "tags" {
   default = {
-    Project     = "3-tier-app"
-    ManagedBy   = "terraform"
+    Project   = "3-tier-app"
+    ManagedBy = "terraform"
   }
 }
