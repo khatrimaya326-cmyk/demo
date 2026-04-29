@@ -596,33 +596,103 @@ Open `http://$ALB` in your browser to see the full app.
 
 ## Teardown
 
+Run these steps in order. Each step must complete before the next.
+
+### 1. Delete Kubernetes app resources (removes the ALB)
 ```bash
-kubectl delete namespace app
+kubectl delete namespace app --ignore-not-found
 ```
 - Deletes all Kubernetes resources (pods, services, ingress, secrets) in the `app` namespace.
+- Deleting the Ingress triggers the ALB controller to remove the AWS Load Balancer automatically.
 
+### 2. Delete EKS nodegroup and cluster
 ```bash
 aws eks delete-nodegroup --cluster-name 3-tier-app-cluster --nodegroup-name default
 aws eks wait nodegroup-deleted --cluster-name 3-tier-app-cluster --nodegroup-name default
 aws eks delete-cluster --name 3-tier-app-cluster
+aws eks wait cluster-deleted --name 3-tier-app-cluster
 ```
-- Deletes the node group first (must delete nodes before the cluster).
-- Waits for nodes to be deleted, then deletes the cluster.
+- Must delete the nodegroup before the cluster. The `wait` commands block until deletion is complete.
 
+### 3. Delete ECR repositories
+```bash
+aws ecr delete-repository --repository-name 3-tier-app/backend  --force
+aws ecr delete-repository --repository-name 3-tier-app/frontend --force
+```
+- `--force` removes all images inside before deleting the repository.
+
+### 4. Delete RDS (if created)
 ```bash
 aws rds delete-db-instance --db-instance-identifier tier-app-db --skip-final-snapshot
+aws rds wait db-instance-deleted --db-instance-identifier tier-app-db
 ```
-- Deletes the RDS instance. `--skip-final-snapshot` skips creating a backup — use only if you don't need the data.
+- `--skip-final-snapshot` skips the backup — only use if you don't need the data.
 
+### 5. Delete OIDC provider
 ```bash
-aws ecr delete-repository --repository-name 3-tier-app/frontend --force
-aws ecr delete-repository --repository-name 3-tier-app/backend  --force
+OIDC_ARN=$(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[0].Arn' --output text)
+aws iam delete-open-id-connect-provider --open-id-connect-provider-arn $OIDC_ARN
 ```
-- Deletes ECR repositories and all images inside them. `--force` skips the confirmation.
 
+### 6. Delete IAM roles and policies
 ```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+for ROLE in 3-tier-eks-cluster-role 3-tier-eks-node-role AmazonEKSLoadBalancerControllerRole; do
+  for POLICY_ARN in $(aws iam list-attached-role-policies --role-name $ROLE --query 'AttachedPolicies[*].PolicyArn' --output text 2>/dev/null); do
+    aws iam detach-role-policy --role-name $ROLE --policy-arn $POLICY_ARN
+  done
+  aws iam delete-role --role-name $ROLE
+done
+
+aws iam delete-policy --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerIAMPolicy
+aws iam delete-policy --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerExtraPolicy
+```
+- Policies must be detached from all roles before the role or policy can be deleted.
+
+### 7. Delete NAT Gateway and release Elastic IP
+```bash
+NAT_GW=$(aws ec2 describe-nat-gateways --filter Name=vpc-id,Values=$VPC_ID \
+  --query 'NatGateways[?State!=`deleted`].NatGatewayId' --output text)
 aws ec2 delete-nat-gateway --nat-gateway-id $NAT_GW
+echo "Waiting 60s for NAT gateway to delete..."
+sleep 60
+
+EIP=$(aws ec2 describe-addresses --filters Name=domain,Values=vpc \
+  --query 'Addresses[?AssociationId==null].AllocationId' --output text)
 aws ec2 release-address --allocation-id $EIP
 ```
-- Deletes the NAT Gateway and releases the Elastic IP.
 - > ⚠️ NAT Gateway costs ~$0.045/hour even when idle. Always delete when not in use.
+- Must wait for NAT Gateway to finish deleting before releasing the Elastic IP.
+
+### 8. Delete VPC and all networking
+```bash
+# Subnets
+for SUBNET in $(aws ec2 describe-subnets --filters Name=vpc-id,Values=$VPC_ID \
+  --query 'Subnets[*].SubnetId' --output text); do
+  aws ec2 delete-subnet --subnet-id $SUBNET
+done
+
+# Non-main route tables
+for RT in $(aws ec2 describe-route-tables --filters Name=vpc-id,Values=$VPC_ID \
+  --query 'RouteTables[?!Associations[?Main==`true`]].RouteTableId' --output text); do
+  aws ec2 delete-route-table --route-table-id $RT
+done
+
+# Internet Gateway
+IGW=$(aws ec2 describe-internet-gateways --filters Name=attachment.vpc-id,Values=$VPC_ID \
+  --query 'InternetGateways[0].InternetGatewayId' --output text)
+aws ec2 detach-internet-gateway --internet-gateway-id $IGW --vpc-id $VPC_ID
+aws ec2 delete-internet-gateway --internet-gateway-id $IGW
+
+# Security groups (non-default)
+for SG in $(aws ec2 describe-security-groups --filters Name=vpc-id,Values=$VPC_ID \
+  --query 'SecurityGroups[?GroupName!=`default`].GroupId' --output text); do
+  aws ec2 delete-security-group --group-id $SG
+done
+
+# VPC
+aws ec2 delete-vpc --vpc-id $VPC_ID
+echo "VPC deleted."
+```
+- Must delete subnets, route tables, IGW, and security groups before the VPC can be deleted.
