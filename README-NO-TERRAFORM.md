@@ -19,7 +19,7 @@ aws configure
 Connects your terminal to your AWS account. You will be asked for:
 - **AWS Access Key ID** — from your IAM user credentials
 - **AWS Secret Access Key** — from your IAM user credentials
-- **Default region** — enter `us-east-1`
+- **Default region** — enter `ap-south-1`
 - **Default output format** — enter `json`
 
 ```bash
@@ -45,7 +45,7 @@ VPC_ID=$(aws ec2 create-vpc --cidr-block 10.0.0.0/16 \
 aws ec2 modify-vpc-attribute --vpc-id $VPC_ID --enable-dns-hostnames
 ```
 - Enables DNS hostnames inside the VPC.
-- Required so that RDS gives a readable hostname (e.g. `3-tier-app-db.xxxx.us-east-1.rds.amazonaws.com`) instead of just an IP.
+- Required so that RDS gives a readable hostname (e.g. `3-tier-app-db.xxxx.ap-south-1.rds.amazonaws.com`) instead of just an IP.
 
 ```bash
 aws ec2 create-tags --resources $VPC_ID --tags Key=Name,Value=3-tier-app-vpc
@@ -73,14 +73,14 @@ aws ec2 attach-internet-gateway --vpc-id $VPC_ID --internet-gateway-id $IGW_ID
 ### Create Public Subnets
 ```bash
 PUB_SUBNET_1=$(aws ec2 create-subnet --vpc-id $VPC_ID \
-  --cidr-block 10.0.101.0/24 --availability-zone us-east-1a \
+  --cidr-block 10.0.101.0/24 --availability-zone ap-south-1a \
   --query 'Subnet.SubnetId' --output text)
 
 PUB_SUBNET_2=$(aws ec2 create-subnet --vpc-id $VPC_ID \
-  --cidr-block 10.0.102.0/24 --availability-zone us-east-1b \
+  --cidr-block 10.0.102.0/24 --availability-zone ap-south-1b \
   --query 'Subnet.SubnetId' --output text)
 ```
-- Creates 2 **public subnets** — one in `us-east-1a` and one in `us-east-1b`.
+- Creates 2 **public subnets** — one in `ap-south-1a` and one in `ap-south-1b`.
 - Public subnets are where the **ALB (load balancer)** lives — it needs to be internet-facing.
 - Two subnets in different AZs are required by AWS ALB for high availability.
 - `10.0.101.0/24` gives 256 IPs. `10.0.102.0/24` gives another 256 IPs.
@@ -104,11 +104,11 @@ aws ec2 create-tags --resources $PUB_SUBNET_1 $PUB_SUBNET_2 \
 ### Create Private Subnets
 ```bash
 PRIV_SUBNET_1=$(aws ec2 create-subnet --vpc-id $VPC_ID \
-  --cidr-block 10.0.1.0/24 --availability-zone us-east-1a \
+  --cidr-block 10.0.1.0/24 --availability-zone ap-south-1a \
   --query 'Subnet.SubnetId' --output text)
 
 PRIV_SUBNET_2=$(aws ec2 create-subnet --vpc-id $VPC_ID \
-  --cidr-block 10.0.2.0/24 --availability-zone us-east-1b \
+  --cidr-block 10.0.2.0/24 --availability-zone ap-south-1b \
   --query 'Subnet.SubnetId' --output text)
 ```
 - Creates 2 **private subnets** — where EKS worker nodes and RDS live.
@@ -284,7 +284,7 @@ aws eks wait nodegroup-active --cluster-name 3-tier-app-cluster --nodegroup-name
 ## Step 6 — Connect kubectl
 
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name 3-tier-app-cluster
+aws eks update-kubeconfig --region ap-south-1 --name 3-tier-app-cluster
 ```
 - Downloads the cluster credentials and adds them to `~/.kube/config`.
 - After this, all `kubectl` commands target your EKS cluster.
@@ -358,7 +358,7 @@ RDS_ENDPOINT=$(aws rds describe-db-instances \
   --query 'DBInstances[0].Endpoint.Address' --output text)
 echo "RDS Endpoint: $RDS_ENDPOINT"
 ```
-- Gets the RDS hostname (e.g. `3-tier-app-db.xxxx.us-east-1.rds.amazonaws.com`).
+- Gets the RDS hostname (e.g. `3-tier-app-db.xxxx.ap-south-1.rds.amazonaws.com`).
 - Save this value — you need it in Step 10 for the Kubernetes secret.
 
 ---
@@ -366,8 +366,8 @@ echo "RDS Endpoint: $RDS_ENDPOINT"
 ## Step 8 — Create ECR Repositories
 
 ```bash
-aws ecr create-repository --repository-name 3-tier-app/frontend --region us-east-1
-aws ecr create-repository --repository-name 3-tier-app/backend  --region us-east-1
+aws ecr create-repository --repository-name 3-tier-app/frontend --region ap-south-1
+aws ecr create-repository --repository-name 3-tier-app/backend  --region ap-south-1
 ```
 - Creates 2 private Docker image repositories in **ECR** (Elastic Container Registry).
 - Your EKS nodes pull images from here. They have permission via the node IAM role (Step 3).
@@ -377,12 +377,12 @@ aws ecr create-repository --repository-name 3-tier-app/backend  --region us-east
 ## Step 9 — Build & Push Docker Images
 
 ```bash
-ECR_REGISTRY=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
+ECR_REGISTRY=${ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com
 ```
 - Builds the ECR registry URL from your account ID. Format: `<account-id>.dkr.ecr.<region>.amazonaws.com`.
 
 ```bash
-aws ecr get-login-password --region us-east-1 | \
+aws ecr get-login-password --region ap-south-1 | \
   docker login --username AWS --password-stdin $ECR_REGISTRY
 ```
 - Gets a temporary ECR auth token and logs Docker into ECR.
@@ -439,7 +439,7 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   -n kube-system \
   --set clusterName=3-tier-app-cluster \
   --set serviceAccount.create=true \
-  --set region=us-east-1 \
+  --set region=ap-south-1 \
   --set vpcId=$VPC_ID
 ```
 - Installs the **AWS Load Balancer Controller** into the `kube-system` namespace.
@@ -499,7 +499,7 @@ kubectl exec -it $POD -n app -- node -e "..."
 ALB=$(kubectl get ingress -n app -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
 echo "App URL: http://$ALB"
 ```
-- Gets the ALB DNS hostname assigned by AWS (e.g. `k8s-app-xxxx.us-east-1.elb.amazonaws.com`).
+- Gets the ALB DNS hostname assigned by AWS (e.g. `k8s-app-xxxx.ap-south-1.elb.amazonaws.com`).
 - Wait **2–3 minutes** after Step 12 for the ALB to be fully provisioned before running this.
 
 ```bash
