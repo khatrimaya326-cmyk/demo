@@ -432,17 +432,17 @@ helm repo add eks https://aws.github.io/eks-charts && helm repo update
 ### Create IAM Policy for the Controller
 
 ```bash
-curl -o /tmp/alb-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.1/docs/install/iam_policy.json
+curl -o ./alb-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.1/docs/install/iam_policy.json
 
 aws iam create-policy \
   --policy-name AWSLoadBalancerControllerIAMPolicy \
-  --policy-document file:///tmp/alb-policy.json
+  --policy-document file://./alb-policy.json
 ```
 - Downloads and creates the IAM policy with all permissions the controller needs.
 
 ```bash
 # Add DescribeListenerAttributes which is missing from the base policy
-cat > /tmp/extra-policy.json <<'EOF'
+cat > ./extra-policy.json <<'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [{
@@ -458,7 +458,7 @@ EOF
 
 aws iam create-policy \
   --policy-name AWSLoadBalancerControllerExtraPolicy \
-  --policy-document file:///tmp/extra-policy.json
+  --policy-document file://./extra-policy.json
 ```
 - The base policy is missing `DescribeListenerAttributes` which causes reconcile errors. This extra policy covers it.
 
@@ -480,7 +480,7 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 OIDC_ID=$(aws eks describe-cluster --name 3-tier-app-cluster \
   --query 'cluster.identity.oidc.issuer' --output text | cut -d'/' -f5)
 
-cat > /tmp/trust-policy.json <<EOF
+cat > ./trust-policy.json <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [{
@@ -501,7 +501,7 @@ EOF
 
 aws iam create-role \
   --role-name AmazonEKSLoadBalancerControllerRole \
-  --assume-role-policy-document file:///tmp/trust-policy.json
+  --assume-role-policy-document file://./trust-policy.json
 
 aws iam attach-role-policy \
   --role-name AmazonEKSLoadBalancerControllerRole \
