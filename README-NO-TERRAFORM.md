@@ -304,7 +304,7 @@ kubectl get nodes
 
 ### Security Group for RDS
 
-bash
+```bash
 RDS_SG=$(aws ec2 create-security-group \
   --group-name 3-tier-rds-sg \
   --description "RDS SG" \
@@ -317,20 +317,20 @@ aws ec2 authorize-security-group-ingress \
   --protocol tcp \
   --port 5432 \
   --cidr 10.0.0.0/16
-
+```
 
 ### DB Subnet Group
 
-bash
+```bash
 aws rds create-db-subnet-group \
   --db-subnet-group-name tier-app-db-subnet \
   --db-subnet-group-description "3-tier DB subnet" \
   --subnet-ids $PRIV_SUBNET_1 $PRIV_SUBNET_2
-
+```
 
 ### Create RDS Instance
 
-bash
+```bash
 aws rds create-db-instance \
   --db-instance-identifier 3-tier-app-db \
   --db-instance-class db.t3.micro \
@@ -343,22 +343,23 @@ aws rds create-db-instance \
   --vpc-security-group-ids $RDS_SG \
   --no-publicly-accessible \
   --allocated-storage 20
-
+```
 
 ### Wait for RDS to be ready (~10–15 min)
 
-bash
+```bash
 aws rds wait db-instance-available --db-instance-identifier 3-tier-app-db
-
+```
 
 ### Get RDS Endpoint
 
-bash
+```bash
 RDS_ENDPOINT=$(aws rds describe-db-instances \
   --db-instance-identifier 3-tier-app-db \
   --query 'DBInstances[0].Endpoint.Address' \
   --output text)
 echo "RDS Endpoint: $RDS_ENDPOINT"
+```
 
 
 ## Step 8 — Create ECR Repositories
