@@ -260,13 +260,15 @@ aws eks wait cluster-active --name 3-tier-app-cluster
 
 ```bash
 aws eks create-nodegroup \
-  --cluster-name 3-tier-app-cluster \
-  --nodegroup-name default \
-  --node-role arn:aws:iam::${ACCOUNT_ID}:role/3-tier-eks-node-role \
-  --subnets $PRIV_SUBNET_1 $PRIV_SUBNET_2 \
-  --instance-types t3.medium \
-  --scaling-config minSize=2,maxSize=4,desiredSize=2 \
-  --ami-type AL2_x86_64
+ --cluster-name 3-tier-app-cluster \
+ --nodegroup-name default \
+ --node-role arn:aws:iam::203557140228:role/3-tier-eks-node-role \
+ --subnets subnet-0ac15d00f0f3e5d50 subnet-0d2c1b1e4c3b737dc \
+ --instance-types t3.micro \
+ --scaling-config minSize=2,maxSize=4,desiredSize=2 \
+ --ami-type AL2_x86_64 \
+ --region ap-south-1
+
 ```
 - Creates EC2 worker nodes that run your pods.
 - `--instance-types t3.medium` — 2 vCPU, 4GB RAM per node. Enough for this app.
